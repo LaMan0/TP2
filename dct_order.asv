@@ -1,0 +1,19 @@
+function dct_image_order = dct_order(dct_image,M)
+
+N = size(dct_image,1);
+
+dct_image_order = zeros(N,N);
+
+T = N/M;
+
+for i = 1:M
+    
+    for j = 1:M
+        
+        D = dct_image(i:M:end,j:M:end);
+        dct_image_order( m*M+[1:T],n*M+[1:T] ) = D;
+    end
+end
+        
+
+

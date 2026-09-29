@@ -1,0 +1,33 @@
+function transform_image = image_8x8_block_dct( input_image,M )
+
+N = size(input_image,1);
+T = N/M;
+
+transform_image = zeros( size( input_image,1 ),size( input_image,2 ) );
+for m = 0:T-1
+    for n = 0:T-1
+        transform_image( m*M+[1:M],n*M+[1:M] ) = ...
+            pdip_dct2( input_image( m*M+[1:M],n*M+[1:M] ) );
+    end
+end
+
+
+
+
+
+function out = pdip_dct2( in )
+
+% get input matrix size
+N = size(in,1);
+
+% build the matrix
+n = 0:N-1;
+for k = 0:N-1
+   if (k>0)
+      C(k+1,n+1) = cos(pi*(2*n+1)*k/2/N)/sqrt(N)*sqrt(2);
+   else
+      C(k+1,n+1) = cos(pi*(2*n+1)*k/2/N)/sqrt(N);
+   end   
+end
+
+out = C*in*(C');
