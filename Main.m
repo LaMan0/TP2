@@ -4,10 +4,19 @@ close all
 clear all
 clc
 
+% Facteur de qualité : plus S est petit, plus la quantification est forte.
 S = 0.5;
+if ~(isscalar(S) && isfinite(S) && S > 0)
+    error('S doit etre un scalaire strictement positif.');
+end
+
+image_name = 'peppers.tiff';
 
 
-I = imread('peppers.tiff');
+I = imread(image_name);
+if ndims(I) ~= 3 || size(I,3) ~= 3
+    error('L''image d''entree doit etre une image RGB a trois composantes.');
+end
 input_image_rgb = double(I);
 figure('Name','Image originale en couleur','NumberTitle','off');
 imagesc(I);
@@ -26,6 +35,9 @@ input_image_cr = input_image_ycbcr(:,:,3);
 
 N = size(input_image_y,1);
 M = 8;
+if mod(size(input_image_y,1),M) ~= 0 || mod(size(input_image_y,2),M) ~= 0
+    error('Les dimensions de l''image doivent etre divisibles par M = %d.', M);
+end
 T = N/M;
 
 % perform DCT in 2 dimension over blocks of 8x8 in the given picture
@@ -130,12 +142,12 @@ axis image
 subplot(2,3,5);
 imagesc(quantized_dct_cb_order);
 colormap gray;
-title( 'DCT compressee Cr');
+title( 'DCT compressee Cb');
 axis image
 subplot(2,3,6);
 imagesc(quantized_dct_cr_order);
 colormap gray;
-title( 'DCT compressee Cb');
+title( 'DCT compressee Cr');
 axis image
 
 %% QUANTIFICATION INVERSE
@@ -166,12 +178,12 @@ axis image
 subplot(2,3,2);
 imagesc(quantized_dct_cb_order);
 colormap gray;
-title( 'DCT compressee Cr');
+title( 'DCT compressee Cb');
 axis image
 subplot(2,3,3);
 imagesc(quantized_dct_cr_order);
 colormap gray;
-title( 'DCT compressee Cb');
+title( 'DCT compressee Cr');
 axis image
 subplot(2,3,4);
 imagesc(output_image_ycbcr(:,:,1),clims);
@@ -199,8 +211,15 @@ imagesc(min(max(output_image_rgb./255,0),1),clims2);
 axis image
 title('image compressee')
 
-SNR = 10*log10(sum(input_image_rgb(:).^2)/sum((input_image_rgb(:)-output_image_rgb(:)).^2));
-disp(['SNR = ',num2str(SNR),' dB']);
+err = input_image_rgb - output_image_rgb;
+SNR = 10*log10(sum(input_image_rgb(:).^2) / max(sum(err(:).^2), eps));
+MSE = mean(err(:).^2);
+PSNR = 10*log10(255^2 / max(MSE, eps));
+fprintf('Image : %s | S = %.3g | SNR = %.2f dB | PSNR = %.2f dB | MSE = %.3f\n', ...
+    image_name, S, SNR, PSNR, MSE);
+fprintf('Coefficients DCT nuls apres quantification : Y %.1f%%, Cb %.1f%%, Cr %.1f%%\n', ...
+    100*mean(quantized_dct_y(:)==0), 100*mean(quantized_dct_cb(:)==0), ...
+    100*mean(quantized_dct_cr(:)==0));
 
 
 %% AFFICHAGE ZOOM
@@ -239,64 +258,41 @@ axis image
 colormap gray;
 title('DTC compressee image Cr : zoom');
 
-%% AFFICHAGE POUR UN BLOC
-
-m = input('indice de la ligne ? ');
-n = input('indice de la colonne ? ');
-c = input('Y (1), Cr (2) ou Cb (3) ?');
-% 
- %40-42
-%60-5
-
-
-
-switch c
-    case 1
-        color = 'Y';
-    case 2
-        color = 'Cr';
-    case 3
-        color = 'Cb';
-end
-   
-
-[crop_image,transform_crop_image] = image_one_block_dct( input_image_ycbcr(:,:,c),M,m,n);
-
-figure('Name','DCT du bloc','NumberTitle','off');
-imagesc(crop_image);
-colormap gray;
-axis image
-set(gca,'xtick',[ ]);set(gca,'ytick',[ ]);
-title(['bloc ',color,' (',num2str(m),',',num2str(n),')']);
-% figure('Name','DCT du bloc (hist)','NumberTitle','off');
-% bar3(log(abs(transform_crop_image)));
-% ylabel('F vertical');
-% xlabel('F horizontal');
-% set(gca,'xtick',[ ]);set(gca,'ytick',[ ]);
-% title(['log(|DCT|) du bloc (',num2str(m),',',num2str(n),')']);
-% colormap gray;
-
-figure('Name','Bloc','NumberTitle','off');
-imagesc(input_image_rgb./255,clims2);
-axis image
-hold on
-rectangle('Position',[n*M+0.5  m*M+0.5  M   M ],'LineWidth',2,'EdgeColor','g');
-
-disp('DCT du bloc =');
-
-for i = 1:M
-    for j=1:M
-        fprintf('%6.0f   ',transform_crop_image(i,j));
+%% AFFICHAGE POUR DEUX BLOCS ET LES TROIS COMPOSANTES
+% Les indices sont des indices de bloc, numerotes a partir de zero :
+% (0,0) commence au pixel (1,1), (8,8) commence au pixel (65,65).
+block_positions = [0 0; 8 8];
+component_names = {'Y','Cb','Cr'};
+for p = 1:size(block_positions,1)
+    m = block_positions(p,1);
+    n = block_positions(p,2);
+    if m >= T || n >= T
+        warning('Bloc (%d,%d) hors image ; il est ignore.', m, n);
+        continue;
     end
-    fprintf('\n');
+    figure('Name',sprintf('Coefficients DCT bloc (%d,%d)',m,n),'NumberTitle','off');
+    for c = 1:3
+        block = input_image_ycbcr(m*M+(1:M), n*M+(1:M), c);
+        block_dct = pdip_dct2(block);
+        if c == 1
+            Q = Qy;
+        else
+            Q = Qc;
+        end
+        block_quant = round(block_dct ./ Q);
+        subplot(2,3,c);
+        imagesc(log1p(abs(block_dct))); axis image; colorbar;
+        title(sprintf('%s : log(1+|DCT|)', component_names{c}));
+        subplot(2,3,c+3);
+        imagesc(block_quant); axis image; colorbar;
+        title(sprintf('%s : DCT quantifiee', component_names{c}));
+        fprintf('Bloc (%d,%d), composante %s : DCT puis coefficients quantifies\n', m,n,component_names{c});
+        disp(block_dct);
+        disp(block_quant);
+    end
+    colormap gray;
 end
-        
-figure('Name','Zoom Bloc','NumberTitle','off')
-imagesc(crop_image,[0 255]);
-colormap gray;
-axis image
-set(gca,'xtick',[ ]);set(gca,'ytick',[ ]);
-title(color)
+
 %% TRACE DES BASES
 
 if(M==8)
